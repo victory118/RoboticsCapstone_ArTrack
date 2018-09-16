@@ -1,6 +1,6 @@
 ## Week 2: Assembling the Rover
 
-#### Flashing your Raspberry Pi SD Card (copied from Coursera)
+### Flashing your Raspberry Pi SD Card (copied from Coursera)
 
 First download the Pi image. Once you have downloaded the image, use the tutorial matching your operating system to help you flash the Pi image onto your SD card (you will need to uncompress the file). When this is done, insert the SD card into the Pi before assembly.
 
@@ -12,7 +12,7 @@ Linux installation instructions:
 
 The linked instructions suggested to install the program **Etcher** to flash the SD card. This method worked seamlessly.
 
-#### Connecting to the Pi
+### Connecting to the Pi
 
 You can use SSH to connect to your Raspberry Pi from a Linux computer, a Mac, or another Raspberry Pi, without installing additional software.
 
@@ -22,7 +22,7 @@ To connect to your Pi from a different computer type `ssh pi@<IP>` where `<IP>` 
 
 The IP address for my Raspberry Pi is `192.168.1.11` and the default password is `raspberry`.
 
-#### A Basic Program to Move the Rover (copied from Coursera)
+### A Basic Program to Move the Rover (copied from Coursera)
 
 Now that you've set up ssh for the Pi, ssh into the Pi, and navigate to the folder:
 
@@ -42,7 +42,7 @@ self.ros_interface.command_velocity(0.3, 0)
 
 Save the file, and move to the next section, where we will run this piece of code.
 
-#### Running Your Code (copied from Coursera)
+### Running Your Code (copied from Coursera)
 
 You will need two terminal windows to run your code. To do this, you can just ssh to the Pi in two separate windows.
 
@@ -58,13 +58,13 @@ In the second terminal window, launch your `RobotControl` code with the followin
 
 `$ roslaunch robot_control robot_control.launch`
 
-With the code from the previous section, you should see the rover move forwards. To stop the rover, type `Ctrl-C` to kill the program. Don't worry if the speed is too quick or too slow, we will calibrate this next week.
+With the code from the previous section, you should see the rover move forwards. To stop the rover, type `Ctrl-C` to kill the program. Don'Camera calibratiot worry if the speed is too quick or too slow, we will calibrate this next week.
 
 ## Week 3: Calibration
 
-#### Camera calibration
+### Camera calibration
 
-Print out the provided checkerboard of alternating black and white squares. Measure the length of the squares and note this for later. My squares had length 0.02 meters, but it could also be something close to this value. Also count the number of squares in each dimension of the checkerboard. In the tutorial video, the checkerboard was size 11x9. My checkerboard was size 9x7.
+Print out the provided checkerboard of alternating black and white squares. Measure the length of the squares and note this for later. My squares had length 0.025 meters, but it could also be something close to this value. Also count the number of squares in each dimension of the checkerboard. In the tutorial video, the checkerboard was size 11x9. My checkerboard was size 9x7.
 
 To begin calibration, open up two terminal windows in your Raspberry Pi. In one terminal window, run the launch file that starts the ROS camera node (called `raspicam_node`):
 
@@ -75,19 +75,19 @@ $ roslaunch robot_launch robot.launch
 This also starts other nodes for the april tag detector, motor driver, and IMU even though we will not be using them here (which is okay). In the other terminal window, start the camera calibration program:
 
 ```
-$ rosrun camera_calibration cameracalibrator.py --size 8x6 --square 0.02 image:=/camera/image_raw camera:=/camera
+$ rosrun camera_calibration cameracalibrator.py --size 8x6 --square 0.025 image:=/camera/image_raw camera:=/camera
 ```
 
 The input argument for `--size` will vary depending on your checkerboard. For example, in the tutorial video where the checkerboard is 11x9 I would input the size as `10x8`. This convention for the camera calibration program is to ignore the outer squares when counting the size of the checkerboard. Similarly, for my checkerboard of size 9x7, I would input the size as `8x6`. The input argument for `--square` will also depend on your checkerboard measurement. The input `--square 0.02` means each square has a length of 0.02 meters.
 
 After running the above command, a new display window will open showing the camera output. On the right side of the window will display three buttons: calibrate, save, and commit. These buttons cannot be clicked until the calibration is ready. Now place your checkerboard in the field of view of the camera. If the camera recognizes the checkerboard, the right side of the window should automatically pop up four categories: **X**, **Y**, **Size**, and **Skew**. Moving the checkerboard around in front of the camera should increase the  calibration level for each category. Periodically, the camera will sample the image at specific points to use for calibration. Concretely, here is how to increase each of the calibration levels:
 
-* X: Move the checkerboard left and right.
-* Y: Move the checkerboard up and down.
+* X: Move the checkerboard left and right at varying depths.
+* Y: Move the checkerboard up and down at varying depths.
 * Size: Move the checkerboard closer and farther away from the camera.
 * Skew: Rotate the checkerboard around in different axes individually and simultaneously (X, Y, and Z).
 
-Once the calibration level is ready for all four categories (they should all be green), the **CALIBRATE** button should be highlighted. Clicking on the **CALIBRATE** will automatically calculate the calibration parameters and save them in a file so they are ready to be used. For our purposes, the **SAVE** and **COMMIT** buttons will not be used. The output in the terminal window will show the calculated calibration parameters:
+Once the calibration level is ready for all four categories (they should all be green), the **CALIBRATE** button should be highlighted. Click on the **CALIBRATE** button to start the calibration. After the calibration parameters are calculated, they will be displayed in the terminal as shown below:
 
 ```
 ('D = ', [0.079..., 0.020..., ... ])
@@ -97,7 +97,7 @@ Once the calibration level is ready for all four categories (they should all be 
 ...
 ```
 
-This window may now be frozen, but that's okay. You can simply halt the camera calibration program by typing `ctrl+c` . 
+The calibration process could take up to several minutes, so be patient. If you sample too many points (>50) before starting the calibration, then it could take much longer. After calibration is complete, the **COMMIT** and **SAVE** buttons will become available. Now hit the **COMMIT** button to write and save the new calibration parameters into the `~/catkin_ws/src/raspicam_node/calibrations/camera.yaml` file where they will be used by the controller. After your parameters are saved in `camera.yaml`, there will be an output confirming this in the terminal where you ran `robot.launch`. You should also check to verify that the calibration parameters in `camera.yaml` do indeed match the output shown in the terminal. Hitting the **SAVE** button will save the calibration parameters in an external file, but this part is only optional.
 
 ### Motor Calibration
 
@@ -125,7 +125,7 @@ If you would like more information on differential drive models, please refer to
 
 [http://planning.cs.uiuc.edu/node659.html](http://planning.cs.uiuc.edu/node659.html)
 
-#### Calibration
+#### Calibration Procedure
 
 For this calibration, we will perform a very basic gain tuning, where we drive the rover forwards at a set speed for 1 second, and then measuring the actual distance traveled by the robot, and using the difference to tune the ratio between gear ratio and max rpm. One simple way to do this is by lining the wheels of a robot up with a ruler and measuring where it ends up, as seen in the image below.
 
@@ -199,9 +199,69 @@ After measuring $T_X$, $T_Y$, and $T_Z$, they should be recorded in the `params.
 
 $^{CAM}R_{BODY}$ does not need to be recorded in the `params.yaml` file because it is the same rotation matrix for everyone so it is hard-coded into the program.
 
-### IMU Accelerometer Calibration
+### Introduction to April Tags
 
-#### (Copied from Coursera)
+April Tags are planar fiducial markers that consist of a black square with a unique pattern inside. This is the main method of perception we will be using for this course. There are hundreds of unique tags and each one corresponds to a different number. We will be using the **Pose from Tomography** algorithm to get the 3D pose of the tag with respect to the camera. Because we are dealing with a planar robot in this course, the API will only be returning the 2D X and Y translations of the tag as well as its orientation around the Z axis, which we call $\theta$. To get accurate pose information, you will need to measure one of the sides of the black square and update one of the parameter files with this value.
+
+> Note: The sides of the April tag may not all be the same length depending on your printer settings.
+
+#### Printing the April Tags (copied from Coursera)
+
+For resized versions of the first 16 tags, please download this pdf file:
+
+(link to pdf)
+
+Each tag in the pdf includes its ID number, as well as the direction that is 'up' in the world.
+
+Alternatively, this link contains all possible tags:
+
+<http://april.eecs.umich.edu/software/tag36h10.tgz>
+
+However, you will need to resize them yourself. Note that, when resizing, you must not resample, as otherwise the tags will become very blurred.
+
+For more information about the tags, please refer to: https://april.eecs.umich.edu/wiki/AprilTags, where the original paper is also referenced. For a ROS interface, we use the following package: <http://wiki.ros.org/apriltags>.
+
+#### Software (copied from Coursera)
+
+In order to inform the AprilTag detector of the AprilTags it needs to look for as well as the size of the tags, you must edit the file located at:
+
+`/home/pi/catkin_ws/src/robot_launch/launch/tag_detection.launch`
+
+In this file, you will see a list of tag_ids and their corresponding sizes (length of one side of the black square. Only tags listed in this file will be detected, so you must edit this file each time you change the tags that you are using.
+
+> Note: The code requires that the tags defined in the world map be in consecutive order. That is, if you want to use 4 tags, you must have tags 0, 1, 2, 3, and not 1, 2, 3, 4 or 0, 1, 3, 4 etc.
+
+#### Updating Camera Drivers and Software
+
+To check if the camera is recognizing April Tags, you first need to start it by opening a new terminal and running:
+
+```
+$ roslaunch robot_launch robot.launch
+```
+
+If the Pi is hooked up to an HDMI monitor (rather than SSH), you can see what is being displayed by the camera by opening a new terminal and running `rqt_image_view`. In the drop-down menu, select the option `/camera/tag_detections_image`. If the April Tag is detected by the camera, the border of the April Tag image should get highlighted and a number should pop up indicating what number April Tag it corresponds to.
+
+If the April Tag is not detected, you could try updating the software:
+
+```
+$ sudo apt-get update
+$ sudo apt-get updgrade
+$ sudo rpi-update
+```
+
+> Initially, my camera was not detecting the April Tag but it was fixed after updating the software.
+
+#### Results
+
+The resized April Tags measured 7.1 cm on one side and 7.5 cm on another side. I put the April Tag size as 7.2 cm in the `tag_detection.launch` file.
+
+It turns out that the resized April tags that were about 7.1 cm are **too large**, which restricts the range in which the robot can detect the tag. For example, if the tag is too big then at a close enough distance it will cover the entire field of view (FOV) of the camera and thus be undetectable. By making the tag smaller, it will remain detectable at closer distances. Thus, it was necessary to do a custom resize of the April Tags to make them even smaller. To do this in Ubuntu, I installed an image editing software called **Gimp Image Manipulation Program**.
+
+> Note: There is another software called **Gimp Image Editor**, but this is not the correct one.
+
+First load the image into Gimp. The original size of the April Tag is only 10 x 10 pixels. Then go the **Image > Scale Image** and change the **Width** and **Height** of the **Image Size** to the desired dimensions. I chose a dimension of 3 x 3 cm and this worked well. Leave the resolution the same. It should be 300 x 300 pixels/in by default. Change the **Quality** setting to **None** and then hit **Scale**. The April Tag should now be the correct dimension without any indication of distortion or loss in quality compared to the original image. After resizing the April Tags, I copied and pasted them into a word processing software so I could print out multiple tags on the same sheet.
+
+### IMU Accelerometer Calibration (Copied from Coursera)
 
 In order to make sense of the values from the accelerometer, you will need to calibrate the min/max values of the accelerometer. This involves moving the IMU around as quickly as possible. To run the calibration, ssh into the Pi, and navigate to this folder:
 
@@ -248,5 +308,142 @@ Opening the `RTIMULib.ini` file shows that the **Adafruit Precision NXP 9-DOF Br
 
 [https://www.adafruit.com/product/3463](https://www.adafruit.com/product/3463)
 
+> Another promising idea is to try following the I2C accelerometer tutorial on Derek Malloy's Exploring Raspberry Pi book. It's possible that I did not activate the I2C channels on the Pi correctly so it could not be read.
 
+## Week 4: Designing a Controller for the Rover
 
+### Robot Kinematic Model
+
+The robot kinematic model is defined as shown in the figure below:
+
+![robot_kinematic_model](/home/victor/Git/Coursera/RoboticsCapstone_UPenn/RoboticsCapstone_ArTrack/robot_kinematic_model.jpg)
+
+Here, the goal position represented by the thick dot is defined to be position of the AprilTag where we want the robot to move to. Let's say that we want to align the X-axis of the robot with the X-axis of the AprilTag. The AprilTag axes are defined as $X_G$ and $Y_G$ and the robot axes are defined as $X_R$ and $Y_R$. The $\Delta x$ and $\Delta y$ are the distances between the robot and the tag along the X and Y axes of the tag. The angle $\theta$ defines the angle between the AprilTag X-axis and the robot X-axis. The distance $\rho$ is the straight line distance between the robot and the tag, $\alpha$ is the angle between the robot X-axis and this line, and $\beta$ is the angle between this line and the tag X-axis. We also have the control inputs, $v$ and $\omega$, which are the linear and angular velocities of the robot, respectively. By defining these terms, we can write a mathematical model describing how the control inputs will affect the robot's movements. Consequently, we will be able to minimize $\rho, \alpha,$ and $\beta$, allowing the robot to move to the tag.
+
+From each April Tag measurement, we can diretly observe $\Delta x$, $\Delta y$, and $\theta$. From these values, we can then calculate $\rho$, $\alpha$, and $\beta$ as
+$$
+\begin{align}
+	\rho &= \sqrt{\Delta x^2 + \Delta y^2} \\
+	\alpha &= -\theta + atan2(\Delta y, \Delta x) \\
+	\beta &= -\theta - \alpha
+	\end{align}
+$$
+
+Here, $\rho$ is the distance between the robot position and tag position, $\alpha$ is the angular error between the heading direction of the robot and the direct line to the tag, and $\beta$ is the error between the heading direction of the robot and the desired heading direction at the end. In order for the robot to have reached the tag and achieve the desired heading, we must ultimately have all three of these state variables be zero.
+
+Using geometry, we can calculate the rate of change of each of these quantities that we want to minimize in terms of the control inputs:
+$$
+\begin{equation}
+	\begin{bmatrix}
+	\dot{\rho}\\
+	\dot{\alpha}\\
+	\dot{\beta}
+	\end{bmatrix}
+	=
+	\begin{bmatrix}
+	-\cos{\alpha} & 0\\
+	(\sin{\alpha})/\rho & -1\\
+	(\sin{\alpha})/\rho & 0
+	\end{bmatrix}
+	\begin{bmatrix}
+	v\\
+	\omega
+	\end{bmatrix}
+	\end{equation}
+$$
+Notice that we have control over all three state variables from the two control inputs (controllability is not discussed here).
+
+### Control Law and Stability
+
+Consider the control law:
+$$
+\begin{equation}
+	\begin{bmatrix}
+	v \\
+	w
+	\end{bmatrix}
+	=
+	\begin{bmatrix}
+	k_{\rho} & 0 & 0 \\
+	0 & k_{\alpha} & k_{\beta} \\
+	\end{bmatrix}
+	\begin{bmatrix}
+	\rho \\
+	\alpha \\
+	\beta
+	\end{bmatrix}
+	\end{equation}
+$$
+Substituting these values back into the kinematics, we get:
+$$
+\begin{equation} \label{eq:state_eqn}
+	\begin{bmatrix}
+	\dot{\rho} \\
+	\dot{\alpha} \\
+	\dot{\beta}
+	\end{bmatrix}
+	=
+	\begin{bmatrix}
+	-k_{\rho}\rho \cos{\alpha} \\
+	k_{\rho}\sin{\alpha} - k_{\alpha}\alpha - k_{\beta}\beta \\
+	-k_{\rho}\sin{\alpha}
+	\end{bmatrix}
+	\end{equation}
+$$
+Assuming $\alpha\approx0$, we can linearize the system of equations above and obtain:
+$$
+\begin{bmatrix}
+	\dot{\rho} \\
+	\dot{\alpha} \\
+	\dot{\beta}
+	\end{bmatrix}
+	=
+	\begin{bmatrix}
+	-k_{\rho} & 0 & 0 \\
+	0 & -(k_{\alpha} - k_{\rho}) & -k_{\beta} \\
+	0 & -k_{\rho} & 0
+	\end{bmatrix}
+	\begin{bmatrix}
+	\rho \\
+	\alpha \\
+	\beta 
+	\end{bmatrix}
+$$
+The characteristic polynomial of the system above is:
+$$
+(\lambda + k_{\rho})(\lambda^2 + (k_{\alpha} - k_{\rho})\lambda - k_{\rho}k_{\beta}) = 0
+$$
+The system is locally exponential stable if all eigenvalues of the system have negative real parts. The eigenvalues can be found by solving for the roots of the characteristic polynomial. For the system to be stable, the control gains must be set as $k_{\rho} > 0$, $k_{\beta} < 0$, and $k_{\alpha} - k_{\rho} > 0$. When the control gains are tuned in such a way, the coefficients of the characteristic polynomial are all greater than 0 which ensures that all of its roots have a negative real part.
+
+### Simulation Implementation
+
+First you should implement the controller in `DiffDriveController.py` and get it to work in simulation before testing it on the robot. Here are some key implementation details:
+
+* Let the tag coordinate frame be aligned with the global coordinate frame as in the robot kinematic model diagram. We want to define our `goal` and `state` variables in the tag coordinate frame. Set `goal = np.array([0, 0])` in `process_measurements()` in `RobotControl.py`. This means we are defining the location of the tag as the origin. `meas` is an N x 5 list of visible tags or `None`. For testing purposes, we will only use one tag for this week's assignment. The tags are in the form (x, y, theta, id, time) with x, y being the 2D position of the marker relative to the robot and theta being the relative orientation of the marker with the respect to the robot. However, for the `state` we want the position of the robot with respect to the tag (or global) coordinate frame. Hence we need to negate `meas` to get the state: `state = -np.array(meas[0][0:3])`.
+* The X-axis of the tag points in the opposite direction of the tag image. Hence, the camera will only detect the tag if the image side is facing the camera in its field of view. In the simulation, the image side appears flat and the opposite side has the appearance of a small protruding nub.
+* For simulation, the control gains $k_p = 2$, $k_a = 10$, and $k_b$ = 0 work well. According to the video lecture, with a single tag it's best to set $k_b=0$ to avoid paths where the rover loses the tag from its field of view. 
+
+### Testing the Controller
+
+#### Transferring files to the Pi
+
+After verifying that your code works in simulation, it's time to transfer the file `DiffDriveController.py` from your computer to the Raspberry Pi. To do this, you will use SCP (Secure Copy Protocol) which is a command for sending files over SSH. This means you can copy files between computers, say from your Raspberry Pi to your desktop or laptop, or vice-versa. First you will need to know your Raspberry Pi's IP address by running `hostname -I` in a Raspberry Pi terminal. Note that the IP address of the Raspberry may change after power cycling so check to make sure you have the correct address if the SSH connection does not work.
+
+To copy the file `DiffDriveController.py` from your computer to the Pi, go to a terminal on your host computer, `cd` into the directory where `DiffDriveController.py` lives, and run:
+
+```
+$ scp DiffDriveController.py pi@192.168.1.11:/home/pi/catkin_ws/src/robot_control/src
+```
+
+where the last argument is the directory in the Pi where you want to copy the file to. Also, make sure that the IP address of the Pi is the correct one.
+
+#### Fixing error in t_cam_to_body
+
+There are some errors that need to be fixed in order to make the tag detection work correctly on the actual robot. Add an extra 0 to the end of the`t_cam_to_body` vector so that it has dimension 4x1. As given, it has dimension 3x1. This parameter can be found in the `params.yaml` file locate in `/catkin_ws/src/robot_control/params`. Also, update the first three elements of the `t_cam_to_body` vector based on your own measurements. 
+
+#### Implementation
+
+Here are some key implementation details:
+
+* The controller runs at a default rate of 60 Hz and it checks the camera output at each iteration. However, the camera sometimes (usually) does not pick up an April Tag measurement at every sampling instance. Hence, when there is no April Tag measurement I set both the velocity and angular velocity commands to zero. This causes the control commands to make sudden jumps between some positive values and zero, resulting in choppy movements by the robot. This will be fixed next week after implementing a Kalman filter.
+* To make debugging easier, I reduce the controller sample rate to 1 Hz and print out `meas`, `v`, and `omega` to make sure that the control commands are directionally correct in trying to reduce the error.
