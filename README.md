@@ -168,7 +168,21 @@ Over four trials, the robot moved 0.22 m, 0.21 m, 0.215 m, and 0.21 m. Let's say
 $$
 k_{cal} = \frac{v_{actual}}{v_{command}} = \frac{0.21}{0.3} = 0.7
 $$
-Thus, we have to divide our commanded speed by a factor of 0.7 to increase the effective commanded speed. This should get us closer to our desired (or close to desired) speed. In the `motor_params.yaml` file the default value of `motor_gain` is 1. So we will change this value to 1/0.7 = 1.4.
+Thus, we have to divide our commanded speed by a factor of 0.7 to increase the effective commanded speed. This should get us closer to our desired (or close to desired) speed. In the `motor_params.yaml` file the default value of `motor_gain` is 1. So we will change this value to 1/0.7 = 1.4. To edit the calibration file using the Nano text editor, enter the command:
+
+```
+nano $HOME/catkin_ws/src/dc_motor_driver/params/motor_params.yaml
+```
+
+| Velocity command (m/s) | Duration (sec) | Distance traveled (m) | Difference factor | Comments               |
+| ---------------------- | -------------- | --------------------- | ----------------- | ---------------------- |
+| 0.1                    | 1              | 0.04                  | 0.4               | drifted right          |
+| 0.1                    | 1              | 0.035                 |                   | drifted right          |
+| 0.1                    | 1              | 0.05                  |                   | drifted right slightly |
+| 0.1                    | 1              | 0.04                  | 0.4               | straight               |
+|                        |                |                       |                   |                        |
+
+
 
 ### Camera to Body Calibration
 
@@ -420,7 +434,7 @@ The system is locally exponential stable if all eigenvalues of the system have n
 First you should implement the controller in `DiffDriveController.py` and get it to work in simulation before testing it on the robot. Here are some key implementation details:
 
 * Let the tag coordinate frame be aligned with the global coordinate frame as in the robot kinematic model diagram. We want to define our `goal` and `state` variables in the tag coordinate frame. Set `goal = np.array([0, 0])` in `process_measurements()` in `RobotControl.py`. This means we are defining the location of the tag as the origin. `meas` is an N x 5 list of visible tags or `None`. For testing purposes, we will only use one tag for this week's assignment. The tags are in the form (x, y, theta, id, time) with x, y being the 2D position of the marker relative to the robot and theta being the relative orientation of the marker with the respect to the robot. However, for the `state` we want the position of the robot with respect to the tag (or global) coordinate frame. Hence we need to negate `meas` to get the state: `state = -np.array(meas[0][0:3])`.
-* The X-axis of the tag points in the opposite direction of the tag image. Hence, the camera will only detect the tag if the image side is facing the camera in its field of view. In the simulation, the image side appears flat and the opposite side has the appearance of a small protruding nub.
+* The X-axis of the tag points in the opposite direction of the tag image. Hence, the camera will only detect the tag if the image side is facing the camera in its field of view. In the simulation, the image side of the tag appears like a nub and the positive direction of the tag X-axis points towards the flat side.
 * For simulation, the control gains $k_p = 2$, $k_a = 10$, and $k_b$ = 0 work well. According to the video lecture, with a single tag it's best to set $k_b=0$ to avoid paths where the rover loses the tag from its field of view. 
 
 ### Testing the Controller
@@ -447,3 +461,327 @@ Here are some key implementation details:
 
 * The controller runs at a default rate of 60 Hz and it checks the camera output at each iteration. However, the camera sometimes (usually) does not pick up an April Tag measurement at every sampling instance. Hence, when there is no April Tag measurement I set both the velocity and angular velocity commands to zero. This causes the control commands to make sudden jumps between some positive values and zero, resulting in choppy movements by the robot. This will be fixed next week after implementing a Kalman filter.
 * To make debugging easier, I reduce the controller sample rate to 1 Hz and print out `meas`, `v`, and `omega` to make sure that the control commands are directionally correct in trying to reduce the error.
+
+## Week 5: State Estimation
+
+### Unicycle Model
+
+We will be using a unicycle model to describe the dynamics of the robot. The state vector is given by $q_k := \left[ \begin{matrix} x & y & \theta \end{matrix} \right]^T$ and the control vector is given by $u_k := \left[ \begin{matrix} v + n_v & \omega + n_{\omega} \end{matrix} \right]^T$, where $n_v$ and $n_\omega$ represent inaccuracies in the actual input. The state prediction model is given by
+$$
+\begin{align}
+	q_k &= f(q_{k-1}, u_{k-1}, n_{k-1})\\
+	&= q_{k-1} + \Delta t
+	\begin{bmatrix}
+	(v+n_v)\cos{\theta} \\
+	(v+n_v)\sin{\theta} \\
+	\omega + n_{\omega}
+	\end{bmatrix} \\
+	&= q_{k-1} + \Delta t
+	\begin{bmatrix}
+	v\cos{\theta} \\
+	v\sin{\theta} \\
+	\omega
+	\end{bmatrix}
+	+ \Delta t
+	\begin{bmatrix}
+	n_v\cos{\theta} \\
+	n_v\sin{\theta} \\
+	n_{\omega}
+	\end{bmatrix}
+	\end{align}
+$$
+where $\Delta t$ is the sampling period. The measurement model is given by
+$$
+z_k = h(q_k,v_k) = q_k + v_k
+$$
+where $v_k$ is the measurement noise and $R_k$ is the covariance of the measurement noise (to be used later). Note that all of the states in this system are directly observable.
+
+The first step of the EKF is to predict the state at the current time step $k$ by
+$$
+\hat{q}_{k|k-1} = f(\hat{q}_{k-1|k-1},u_{k-1},0)
+$$
+The covariance is predicted by
+$$
+P_{k|k-1} = F_{k-1}P_{k-1|k-1}F^T_{k-1}+N_{k-1}Q_{k-1}N^T_{k-1}
+$$
+where $Q_{k-1}$ is the covariance of the process noise, $F_{k-1}$ is the Jacobian of the prediction model with respect to the states calculated as
+$$
+\begin{align}
+	F_{k-1} &= \left.\frac{\partial{f}}{\partial{q}}\right|_{\hat{q}_{k-1|k-1},u_{k-1}} \\
+	&=
+	\begin{bmatrix}
+	1 & 0 & -v\sin{\theta}\cdot\Delta{t} \\
+	0 & 1 & v\cos{\theta}\cdot\Delta{t} \\
+	0 & 0 & 1
+	\end{bmatrix}
+	\end{align}
+$$
+and $N_{k-1}$ is the Jacobian of the prediction model with respect to the noise calculated as
+$$
+Math
+				
+					
+				
+				
+						
+				
+			\begin{align}
+	N_{k-1} &= \left.\frac{\partial{f}}{\partial{n}}\right|_{\hat{q}_{k-1|k-1},u_{k-1}} \\
+	&= \Delta{t}
+	\begin{bmatrix}
+	\cos{\theta} & 0 \\
+	\sin{\theta} & 0 \\
+	0 & 1
+	\end{bmatrix}
+	\end{align}
+$$
+The next step is to update the state estimate after getting measurements. First calculate the Kalman gain by
+$$
+K_k = P_{k|k-1}H_k^T(H_kP_{k|k-1}H_k^T + R_k)^{-1}
+$$
+where $H_k$ is the Jacobian of the measurement model with respect to the states calculated as
+$$
+H_{k} = \left.\frac{\partial{h}}{\partial{q}}\right|_{\hat{q}_{k|k-1},u_{k}}
+	= I
+$$
+which is used to update the state estimate by
+$$
+\hat{q}_{k|k} = \hat{q}_{k|k-1} + K_k(z_k - h(\hat{q}_{k|k-1},0))
+$$
+as well as to update the covariance estimate by
+$$
+P_{k|k} = (I - K_kH_k)P_{k|k-1}
+$$
+
+### Coordinate Transformations
+
+The purpose of the extended Kalman filter is to estimate the robot's pose in the world frame ($W$), denoted as $(x,y,\theta)$. Let the position and orientation of the tag in the world frame be known apriori as $(x_w,y_w,\theta_w)$ and the AprilTag in the robot frame ($R$) be measured as $(x_r,y_r,\theta_r)$. An arbitrary point ${}^T\vec{p}_{B/T}$ in the AprilTag frame ($T$) can be expressed in the world frame by
+$$
+\begin{align}
+	{}^W\vec{p}_{B/W} &= {}^{W}H_{T}{}^T\vec{p}_{B/T} \\
+	&=
+	\begin{bmatrix}
+	\cos{\theta_w} & -\sin{\theta_w} & x_w \\
+	\sin{\theta_w} & \cos{\theta_w} & y_w \\
+	0 & 0 & 1
+	\end{bmatrix}
+	\begin{bmatrix}
+	x_b \\
+	y_b \\
+	1
+	\end{bmatrix}
+	\end{align}
+$$
+where ${}^{W}H_{T}$ is the homogeneous transformation matrix that transforms coordinates expressed in the AprilTag frame to coordinates expressed in the world frame. This matrix can be broken down further into intermediate transformations as
+$$
+\begin{align}
+	{}^{W}H_{T} &= {}^{W}H_{R}{}^{R}H_{T} \\
+	&=
+	\begin{bmatrix}
+	\cos{\theta} & -\sin{\theta} & x \\
+	\sin{\theta} & \cos{\theta} & y \\
+	0 & 0 & 1
+	\end{bmatrix}
+	\begin{bmatrix}
+	\cos{\theta_r} & -\sin{\theta_r} & x_r \\
+	\sin{\theta_r} & \cos{\theta_r} & y_w \\
+	0 & 0 & 1
+	\end{bmatrix}
+	\end{align}
+$$
+Since ${}^{W}H_{T}$ and ${}^{R}H_{T}$ are known, ${}^{W}H_{R}$ can be calculated as
+$$
+\begin{equation}
+	{}^{W}H_{R} = {}^{W}H_{T}{}^{R}H_{T}^{-1} 
+	\end{equation}
+$$
+where $x$, $y$, and $\theta$ can be extracted as $x = {}^{W}H_{R}(0,2)$, $y = {}^{W}H_{R}(1,2)$, and $\theta = \text{atan2}({}^{W}H_{R}(1,0),{}^{W}H_{R}(0,0))$ (0 indexed).
+
+## Deep dive into ROS nodes
+
+First we'll look into what the `robot.launch` file does, which is run by typing:
+
+```
+$ roslaunch robot_launch robot.launch
+```
+
+A new package named `robot_launch` created in order to initialize all of the robot components at once: the motors, IMU, and camera. The tree of the `robot_launch` directory looks like:
+
+```
+.
+|-- CMakeLists.txt
+|-- include
+|   `-- robot_launch
+|-- launch
+|   |-- robot.launch
+|   |-- robot.launch~
+|   |-- tag_detection.launch
+|   `-- tag_detection.launch~
+|-- package.xml
+`-- src
+```
+
+The **include > robot_launch** subdirectories are empty. The `robot.launch` file launches other launch files:
+
+```
+<launch>
+  <include file="$(find raspicam)/launch/raspicam.launch"/>
+  <include file="$(find robot_launch)/launch/tag_detection.launch"/>
+  <include file="$(find imu_rtimulib)/launch/imu_rtimulib.launch"/>
+  <include file="$(find dc_motor_driver)/launch/dc_motor_driver.launch"/>
+</launch>
+```
+
+This includes the Raspberry Pi camera, the April tag detection node, the IMU, and the DC motor driver. The `tag_detection.launch` file launches the `apriltag_detector_node` from the `april_tags_ros` package.
+
+```
+<launch>
+  <node pkg="apriltags_ros" type="apriltag_detector_node" name="apriltag_detector" output="screen" ns="camera">
+    <!-- Enter your AprilTag information below. Add all tag IDs that will be used, with their sizes -->
+    <rosparam param="tag_descriptions">[
+      {id: 0, size: 0.032},
+      {id: 1, size: 0.032},
+      {id: 2, size: 0.032},
+      {id: 3, size: 0.032},
+      {id: 4, size: 0.081},
+      {id: 5, size: 0.081},
+      {id: 6, size: 0.054},
+      {id: 7, size: 0.054},
+      {id: 8, size: 0.054},
+      {id: 9, size: 0.054},
+      {id: 10, size: 0.054},
+      {id: 11, size: 0.054},
+      {id: 12, size: 0.054},
+      {id: 13, size: 0.054},
+      {id: 14, size: 0.054},
+      {id: 15, size: 0.054},
+      ]
+    </rosparam>
+    <remap from="image_rect" to="image_raw"/>
+  </node>
+</launch>
+```
+
+Optional attributes are `output="screen"` which means stdout/stderr from the node will be sent to the screen. Also there is `ns="camera"`, which means the namespace will be "camera" for any topics that this node publishes. For instance, a topic name could be called `/camera/image_raw`.
+
+The `<rosparam>` tag is put inside of a `<node>` tag, which means the parameter is treated like a private name. In roslaunch files, `<param>` tags are for setting a single parameter and `<rosparam>` tags are for setting groups or more complex structures of parameters. The `<rosparam>` tag enables users to define a batch of related parameters simultaneously. These can be read from a [YAML](http://www.yaml.org/) string which can either be put inline in the launchfile or can be loaded from a file (the `rosparam dump` command generates YAML output). Unlike the `<param>` tag, the YAML specification allows nested structures of parameters and parameters with list values. More can be found here: http://wiki.ros.org/ROS/Patterns/Parameterization#Static_Parameters.
+
+
+
+This `<rosparam>` defines a parameter called `tag_descriptions`, which includes a list of dictionaries describing each tag that the camera should recognize. Each tag description includes the **id** and **size** fields.
+
+
+
+The `<remap>` tag allows you to pass in name remapping arguments to the ROS node that you are launching in a more structured manner than settig the `args` attribute of a `<node>` directly. Here for example, the `apriltag_detector_node` is subscribes to a node called "image_rect", but another node publishes a topic called "image_raw" which is the same type as "image_rect". To pipe the "image_raw" topic into the `apriltag_detector_node` which wants the "image_rect" topic, just remap the arguments are shown above.
+
+In the `package.xml` file for the `robot_launch` package, it shows dependencies on catkin, roscpp, and rospy:
+
+```xml
+<buildtool_depend>catkin</buildtool_depend>
+<build_depend>roscpp</build_depend>
+<build_depend>rospy</build_depend>
+<run_depend>roscpp</run_depend>
+ <run_depend>rospy</run_depend>
+```
+
+### Understanding raspicam_node/raspicam.launch
+
+The tree for the `raspicam_node` looks like:
+
+```
+.
+|-- CMakeLists.txt
+|-- README.md
+|-- calibrations
+|   |-- camera.yaml
+|   `-- camera.yaml~
+|-- include
+|   |-- RaspiCLI.h
+|   `-- RaspiCamControl.h
+|-- launch
+|   |-- raspicam.launch
+|   `-- raspicam.launch~
+|-- package.xml
+`-- src
+    |-- RaspiCLI.cpp
+    |-- RaspiCamControl.cpp
+    |-- raspicam_node.cpp
+    `-- raspicam_raw_node.cpp
+```
+
+The camera calibration file `camera.yaml`  contains information about the image_width, image_height, camera_name, camera_matrix, distortion_model, distortion_coefficients, rectification_matrix, and projection_matrix. This file is populated automatically after running the calibration script.
+
+The `raspicam.launch` file has the following:
+
+```
+<launch>
+
+  <node pkg="raspicam" type="raspicam_raw_node" name="raspicam_node" respawn="true" ns="camera" output="screen">
+    <param name="quality" type="double" value="10.0"/>
+    <param name="framerate" type="double" value="50.0"/>
+    <param name="width" type="double" value="320.0" />
+    <param name="height" type="double" value="240.0" />
+  </node>
+
+  <!--node pkg="image_proc" type="image_proc" name="image_proc" respawn="true" ns="/camera"/-->
+</launch>
+```
+
+This launches a node named `raspicam_node`using the `raspicam_raw_node.cpp` executable from the `raspicam` package. Any published topics will have the "/camera" namespace and all stderr/stdout commands will be displayed on the screen. If the node dies, it will automatically respawn. Here, four parameters are set including the quality, framerate, width, and height. (QUESTION) Why is the package name "raspicam" in the launch file when the directory name for the package is "raspicam_node"? If you go to the `package.xml` file, between the `<name>` tags is the name "raspicam". Hence, the directory name for the package is not necessarily the same as the package name.
+
+
+
+## Starting a new catkin workspace in ROS Kinetic
+
+First install ROS Kinetic according to the instructions. Make sure that in the `.bashrc` file that you have included:
+
+```
+source /opt/ros/kinetic/setup.bash
+```
+
+and have commented out:
+
+```
+#source /opt/ros/indigo/setup.bash
+```
+
+### Initialize a new catkin workspace
+
+```
+$ mkdir -p upenn_kinetic_ws/src
+$ cd upenn_kinetic_ws
+$ catkin_make
+```
+
+
+
+### Install ROS packages one by one
+
+Start by creating the ROS packages that have no dependencies, for example the `raspicam_node` package. Because this OS is Raspbian Jessie, you will need to build the packages from source by following the instructions here: https://github.com/fpasteau/raspicam_node
+
+The `raspicam_node` package depends on other ROS packages like `image_transport`, `image_transport_plugins`, and `camera_info_manager`, which you will have to build from source by following instructions here: http://wiki.ros.org/ROSberryPi/Installing%20ROS%20Kinetic%20on%20the%20Raspberry%20Pi. Before cloning the `raspicam_node` package to your catkin workspace, you need to build the ROS package dependencies listed above from source using the Kinetic ROS distribution. Note that the instructions on the GitHub repo are for ROS Groovy. However, the UPenn catkin workspace is using ROS Indigo, and I want to get it working on ROS Kinetic.
+
+
+
+## Shortcuts
+
+### ROS
+
+`roslaunch robot_launch robot.launch`
+
+`roslaunch robot_control robot_control.launch`
+
+### Files
+
+`cd $HOME/catkin_ws/src/robot_control/src/ `
+
+`nano $HOME/catkin_ws/src/robot_control/src/RobotControl.py`
+
+`nano $HOME/catkin_ws/src/robot_control/src/DiffDriveController.py`
+
+`nano $HOME/catkin_ws/src/robot_control/src/KalmanFilter.py`
+
+`nano $HOME/catkin_ws/src/robot_control/params/params.yaml` - t_cam_to_body, dt, occupancy_map, max_omega, max_vel, pos_init, pos_goal, world_map (April tag IDs and poses), x_spacing, y_spacing
+
+
+
