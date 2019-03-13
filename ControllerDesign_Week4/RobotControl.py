@@ -14,6 +14,8 @@ import sys
 from RobotSim import RobotSim
 import matplotlib.pyplot as plt
 
+import math
+
 # TODO for student: uncomment when changing to the robot
 # from ros_interface import ROSInterface
 
@@ -55,7 +57,7 @@ class RobotControl(object):
         t_cam_to_body - numpy transformation between the camera and the robot
             (not used in simulation)
         """
-
+        
         # TODO for student: Comment this when running on the robot 
         self.robot_sim = RobotSim(world_map, occupancy_map, pos_init, pos_goal,
                                   max_speed, max_omega, x_spacing, y_spacing)
@@ -64,10 +66,35 @@ class RobotControl(object):
         #self.ros_interface = ROSInterface(t_cam_to_body)
 
         # YOUR CODE AFTER THIS
+        self.pos_goal = pos_goal # (x,y,theta) specifying final position of robot
         
         # Uncomment as completed
         #self.kalman_filter = KalmanFilter(world_map)
         self.diff_drive_controller = DiffDriveController(max_speed, max_omega)
+
+    def get_transform_matrix(self,X):
+        """
+        Given an X = [x,y,theta], create associated transform
+        Inputs: X - an array of size 3 with [x,y,theta] in it
+        Output: H - a 3 by 3 numpy array of homogeneous representation rotation
+                    and translation
+
+        Note: This helper method is part of the RobotSim class from RobotSim.py
+        """
+        return np.array([[np.cos(X[2]), -np.sin(X[2]), X[0]],
+                         [np.sin(X[2]),  np.cos(X[2]), X[1]],
+                         [         0.0,           0.0,  1.0]])
+    
+    def get_pose_from_transform(self,H):
+        """
+        Given H created from H(X), extract the X
+        Inputs: H - a 3 by 3 numpy array of homogeneous representation rotation
+                    and translation
+        Outpus: X - an array of size 3 of [x,y,theta] of transformation
+
+        Note: This helper method is part of the RobotSim class from RobotSim.py
+        """
+        return [H[0,2],H[1,2],math.atan2(H[1,0],H[0,0])]
 
     def process_measurements(self):
         """ 
@@ -75,24 +102,53 @@ class RobotControl(object):
         Main loop of the robot - where all measurements, control, and esimtaiton
         are done. This function is called at 60Hz
         """
-        # TODO for student: Comment this when running on the robot 
+        # TODO for student: Comment this when running on the robot
+
+        # (x,y,theta,id,time) with x,y being the 2D
+        # position of the marker relative to the robot, theta being the
+        # relative orientation of the marker with respect to the robot, id
+        # being the identifier from the map, and time being the current time
+        # stamp. If no tags are seen, the function returns None. 
         meas = self.robot_sim.get_measurements()
         imu_meas = self.robot_sim.get_imu()
-        
-        done = False
 
-        if meas is not None and meas != []:
+        done = False
+        goal = self.pos_goal
+        # print "goal = ", goal
+
+        if True:
+            state = self.robot_sim.get_gt_pose()
+            v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
+        elif meas is not None and meas != []:
             #print meas
             #print type(meas)
-            state = np.array(meas[0][0:3])
-            goal = np.array([0, 0])
-            #print state
-            #print type(state)
-            #print goal
-            #print type(goal)
+
+            tag_id = int(meas[0][3]) # get the id of the tag seen
+            # print "tag_id = ", tag_id
+
+            pose_tag_in_robot = meas[0][0:3] # get pose of tag in robot frame
+            H_RT = self.get_transform_matrix(pose_tag_in_robot) # get transform matrix of robot to tag frame
+            print "markers = ", self.robot_sim.markers
+            print "type(markers) = ", type(self.robot_sim.markers)
+            print "markers[tag_id] = ", self.robot_sim.markers[tag_id]
+            pose_tag_in_world = self.robot_sim.markers[tag_id, 0:3] # get pose of tag in world frame
+            print "pose_tag_in_world = ", pose_tag_in_world
+            H_WT = self.get_transform_matrix(pose_tag_in_world) # get transform matrix of world to tag frame
+            H_TR = np.linalg.inv(H_RT) # get transform matrix of tag to robot frame
+            H_WR = np.dot(H_WT, H_TR) # get transform matrix of world to robot frame
+
+            pose_robot_in_world = self.get_pose_from_transform(H_WR)
+            state = pose_robot_in_world
+            print "state = ", state
+            print "true pose = ", self.robot_sim.get_gt_pose()
+
             v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
             #print done
-            self.robot_sim.command_velocity(v, omega)
+        else:
+            v = 0
+            omega = 0
+
+        self.robot_sim.command_velocity(v, omega)
             
         # TODO for student: Use this when transferring code to robot
         # meas = self.ros_interface.get_measurements()

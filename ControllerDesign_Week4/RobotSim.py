@@ -108,7 +108,10 @@ class RobotSim(object):
 
         plt.ion()
         self.__plot()
-            
+
+    def get_robot_pose(self):
+        return self.__x_gt
+
     def get_imu(self):
         """
         Get IMU measurements
