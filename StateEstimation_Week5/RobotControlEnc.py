@@ -13,7 +13,6 @@ import sys
 # TODO for student: Comment this section when running on the robot 
 from RobotSim import RobotSim
 import matplotlib.pyplot as plt
-import utility as util
 
 # TODO for student: uncomment when changing to the robot
 # from ros_interface import ROSInterface
@@ -28,7 +27,7 @@ class RobotControl(object):
     Class used to interface with the rover. Gets sensor measurements through ROS subscribers,
     and transforms them into the 2D plane, and publishes velocity commands.
     """
-    def __init__(self, world_map,occupancy_map, pos_init, pos_goal, max_speed, max_omega, x_spacing, y_spacing, t_cam_to_body, sample_time):
+    def __init__(self, world_map,occupancy_map, pos_init, pos_goal, max_speed, max_omega, x_spacing, y_spacing, t_cam_to_body):
         """
         Initialize the class
         Inputs: (all loaded from the parameter YAML file)
@@ -55,7 +54,6 @@ class RobotControl(object):
             of occupancy_map
         t_cam_to_body - numpy transformation between the camera and the robot
             (not used in simulation)
-        sample_time - the sample time in seconds between each measurement (added by me)
         """
 
         # TODO for student: Comment this when running on the robot 
@@ -66,47 +64,64 @@ class RobotControl(object):
         #self.ros_interface = ROSInterface(t_cam_to_body)
 
         # YOUR CODE AFTER THIS
-
+        
         # Uncomment as completed
-        self.kalman_filter = KalmanFilter(world_map, sample_time)
+        self.kalman_filter = KalmanFilter(world_map)
         self.diff_drive_controller = DiffDriveController(max_speed, max_omega)
         self.v_last = 0.0
         self.omega_last = 0.0
 
-    def process_measurements(self, goal):
+    def process_measurements(self):
         """ 
         YOUR CODE HERE
         Main loop of the robot - where all measurements, control, and esimtaiton
         are done. This function is called at 60Hz
         """
         # TODO for student: Comment this when running on the robot 
-        meas = np.array(self.robot_sim.get_measurements()) # measured pose of tag in robot frame (x,y,theta,id,time)
-        imu_meas = self.robot_sim.get_imu() # 5 by 1 numpy vector (acc_x, acc_y, acc_z, omega, time)
+        meas = np.array(self.robot_sim.get_measurements()) # tag wrt robot in robot frame (x,y,theta,id,time)
+        imu_meas = self.robot_sim.get_imu() # (5,1) np array (xacc,yacc,zacc,omega,time)
         
-        # Do KalmanFilter step
-        # Note: The imu_meas could be None if it is sampled at a lower rate than the integration time step.
-        # For the simulation, assume that imu_meas will always return a valid value because we control it in RobotSim.py.
-        # For running on the robot, you should include protection for potentially bad measurements.  
-        pose_est = self.kalman_filter.step_filter(self.v_last, imu_meas, meas)
-
-        at_goal = False
+        done = False
+        goal = np.array([1., 1.2])
+        # z_t is the Nx4 numpy array (x,y,theta,id) of tag wrt robot
         
-        v, omega, at_goal = self.diff_drive_controller.compute_vel(pose_est, goal)
-        self.robot_sim.command_velocity(v, omega)
-        self.v_last = v
-        self.omega_last = omega
-
-        #print("estimated state = ", est_state)
+        if meas is not None and meas != []:
+            #print(meas)
+            #print(imu_meas)
+            z_t = meas[:,:-1] # (3, 4) np array (x, y, theta, id)
+        else:
+            z_t = meas
+        
+        #print("v_last = ", self.v_last)
+        #print("imu_meas = ", imu_meas)
+        #print("z_t = ", z_t)
+        
+        state = self.kalman_filter.step_filter(self.v_last, self.omega_last, imu_meas, z_t)
+        #print("estimated state = ", state)
         #print("true state = ", self.robot_sim.get_gt_pose())
         # Draw ghost robot
-        est_state = np.array([[pose_est[0]],[pose_est[1]],[pose_est[2]]])
-        self.robot_sim.set_est_state(est_state)
-                   
+        est_pose = np.array([[state[0]],[state[1]],[state[2]]])
+        self.robot_sim.set_est_state(est_pose)
+        
+        if done is False:
+            v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
+            self.robot_sim.command_velocity(v, omega)
+            self.v_last = v
+            self.omega_last = omega
+        
+        
+        #if meas is not None and meas != []:
+            #print meas
+            #state = np.array(meas[0][0:3])
+            #goal = np.array([0, 0])
+            #v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
+            #self.robot_sim.command_velocity(v, omega)
+            
         # TODO for student: Use this when transferring code to robot
         # meas = self.ros_interface.get_measurements()
         # imu_meas = self.ros_interface.get_imu()
 
-        return at_goal
+        return done
     
 def main(args):
     # Load parameters from yaml
@@ -124,35 +139,21 @@ def main(args):
     t_cam_to_body = np.array(params['t_cam_to_body'])
     x_spacing = params['x_spacing']
     y_spacing = params['y_spacing']
-    waypoints = np.array(params['waypoints'])
-    print "waypoints = ", waypoints
-
-    pos_goal = pos_goal.reshape(len(pos_goal)) # reshape to (3,)
 
     # Intialize the RobotControl object
-    sample_time = 0.05 # simulation time step
-    # sample_time = 1/60 # when using ROS with sample rate 60 Hz
     robotControl = RobotControl(world_map, occupancy_map, pos_init, pos_goal,
                                 max_vel, max_omega, x_spacing, y_spacing,
-                                t_cam_to_body, sample_time)
+                                t_cam_to_body)
 
     # TODO for student: Comment this when running on the robot 
     # Run the simulation
-    goal = pos_goal.reshape(len(pos_goal))
-    at_goal = False
-    route_done = False
-    waypoint_idx = 0
-    while not robotControl.robot_sim.done and plt.get_fignums() and not route_done:
-        goal = waypoints[waypoint_idx]
-        # print "goal = ", goal
-        at_goal = robotControl.process_measurements(goal)    
+    done = False
+    while not robotControl.robot_sim.done and plt.get_fignums():
+        done = robotControl.process_measurements()
+        if done is True:
+            raw_input("Press the <ENTER> key to continue...")
+        #print done
         robotControl.robot_sim.update_frame()
-
-        if at_goal: # at the current waypoint, move to next one
-            waypoint_idx += 1
-            at_goal = False
-            if waypoint_idx >= waypoints.shape[0]: # finished all waypoints
-                route_done = True
 
     plt.ioff()
     plt.show()
@@ -167,6 +168,9 @@ def main(args):
     robotControl.ros_interface.command_velocity(0,0)"""
 
 if __name__ == "__main__":
-    main(sys.argv)
+    try:
+        main(sys.argv)
+    except rospy.ROSInterruptException
+        pass
 
 

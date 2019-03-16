@@ -6,13 +6,14 @@ from matplotlib import patches
 #import pylab
 import time
 import math
+import utility as util
 
 class KalmanFilter:
     """
     Class to keep track of the estimate of the robots current state using the
     Kalman Filter
     """
-    def __init__(self, markers):
+    def __init__(self, markers, sample_time):
         """
         Initialize all necessary components for Kalman Filter, using the
         markers (AprilTags) as the map
@@ -25,12 +26,24 @@ class KalmanFilter:
         """
         self.markers = markers
         self.last_time = None # Used to keep track of time between measurements 
-        self.Q_t = np.diag([0.5, 0.5])
-        self.R_t = np.diag([1e-1, 1e-1, 1e-1])
+        self.Q_t = np.diag([0.1, 0.1])
+        self.R_t = np.diag([0.01, 0.01, np.pi/180/2])
         # YOUR CODE HERE
         
+        self.sample_time = sample_time
         self.x_t = np.zeros(3) # initialize state variables
-        self.P_t = np.diag([1, 1, 1]) # initialize covariance matrix
+        self.P_t = np.diag([10, 10, 10]) # initialize covariance matrix
+
+    def limit_angle(self, angle):
+        """
+        Limit angle to [-pi, pi]
+        """
+        if angle > np.pi:
+            angle -= 2*np.pi
+        elif angle < -np.pi:
+            angle += 2*np.pi
+        
+        return angle
 
     def prediction(self, v, imu_meas):
         """
@@ -44,38 +57,56 @@ class KalmanFilter:
             the first three values (they are for the linear acceleration which
             we don't use)
         Outputs: a tuple with two elements
-        predicted_state - a 3 by 1 numpy array of the predction of the state
-        predicted_covariance - a 3 by 3 numpy array of the predction of the
+        predicted_state - a 3 by 1 numpy array of the prediction of the state
+        predicted_covariance - a 3 by 3 numpy array of the prediction of the
             covariance
         """
         # YOUR CODE HERE
-        if self.last_time == None:
-            self.last_time = imu_meas[4][0]
-          
-        dt = imu_meas[4][0] - self.last_time
-        self.last_time = imu_meas[4][0]
 
-        x_pre = self.x_t[0] + v*np.cos(self.x_t[2])*dt
-        y_pre = self.x_t[1] + v*np.sin(self.x_t[2])*dt
-        th_pre = self.x_t[2] + imu_meas[3][0]*dt
+        # print "self.x_t[0] = ", self.x_t[0]
+        # print "v = ", v
+        # print "np.cos(self.x_t[2]) =", np.cos(self.x_t[2])
+        # print "v*np.cos(self.x_t[2])*self.sample_time = ", v*np.cos(self.x_t[2])*self.sample_time
+
+        x_pre = self.x_t[0] + v*np.cos(self.x_t[2])*self.sample_time
+        y_pre = self.x_t[1] + v*np.sin(self.x_t[2])*self.sample_time
+        th_pre = self.x_t[2] + imu_meas[3][0]*self.sample_time
+
+        ########### KEY STEP ############
+        # Limit the angle to range [-pi, pi]
+        th_pre = util.limit_angle(th_pre)
         
         #print("v = ", v)
         #print("dt = ", dt)
-        #print("x_pre = ", x_pre)
-        #print("y_pre = ", y_pre)
-        #print("th_pre = ", th_pre)
+        # print "imu_meas = ", imu_meas
+        # print "type(imu_meas) = ", type(imu_meas)
+        # print "imu_meas.shape = ", imu_meas.shape
+        # print "x_t = ", self.x_t
+        # print "x_t.shape = ", self.x_t.shape
+        # print "x_pre = ", x_pre
+        # print "y_pre = ", y_pre
+        # print "th_pre = ", th_pre
         
-        dfdx = np.array([[1.0, 0, 0]]) # derivative of prediction model with respect to x position
-        dfdy = np.array([[0, 1, 0]]) # derivative of prediction model with respect to y position
-        dfdth = np.array([[-np.sin(self.x_t[2])*v*dt, np.cos(self.x_t[2])*v*dt, 1]]) # deriv. wrt theta
+        dfdx = np.array([[1., 0., 0.]]) # derivative of prediction model with respect to x position
+        dfdy = np.array([[0., 1., 0.]]) # derivative of prediction model with respect to y position
+        dfdth = np.array([[-np.sin(self.x_t[2])*v*self.sample_time, np.cos(self.x_t[2])*v*self.sample_time, 1.]]) # deriv. wrt theta
         dfdq = np.transpose(np.concatenate((dfdx, dfdy, dfdth), axis=0)) # Jacobian of prediction model wrt states
         
-        dfdnv = dt*np.array([[np.cos(self.x_t[2]), np.sin(self.x_t[2]), 0]]) # deriv. wrt velocity input uncertainty
-        dfdnw = dt*np.array([[0, 0, 1]]) # deriv. wrt omega input uncertainty
+        dfdnv = self.sample_time*np.array([[np.cos(self.x_t[2]), np.sin(self.x_t[2]), 0]]) # deriv. wrt velocity input uncertainty
+        dfdnw = self.sample_time*np.array([[0., 0., 1.]]) # deriv. wrt omega input uncertainty
         dfdn = np.transpose(np.concatenate((dfdnv, dfdnw), axis=0)) # Jacobian of prediction model wrt input uncertainty
         
+        # print "x_t (pre-concat) = ", self.x_t
         self.x_t = np.array([x_pre, y_pre, th_pre]) # predicted state
+        # print "x_t (post-concat = ", self.x_t
+        # print "dfdth = ", dfdth
+        # print "dfdq = ", dfdq
+        # print "dfdnv = ", dfdnv
+        # print "dfdnw = ", dfdnw
+        # print "dfdn = ", dfdn
+        # print "P_t (pre-prediction) = ", self.P_t
         self.P_t = dfdq.dot(self.P_t).dot(dfdq.T) + dfdn.dot(self.Q_t).dot(dfdn.T) # predicted covariance
+        # print "P_t (post-prediction) = ", self.P_t
         
         return self.x_t, self.P_t
 
@@ -96,39 +127,40 @@ class KalmanFilter:
         # YOUR CODE HERE
         
         dh = np.eye(3) # Jacobian of measurement model wrt states
-        #print(self.P_t)
-        #print(dh.dot(self.P_t).dot(dh.T) + self.R_t)
-        K = self.P_t.dot(dh.T).dot(np.linalg.inv(dh.dot(self.P_t).dot(dh.T) + self.R_t))
-        #print("K = ", K)
-        
+        # print "P_t (pre-update) = ", self.P_t
+        # print "num_meas = ", z_t.shape[0]
         for i in range(z_t.shape[0]):
+            # print "meas_idx = ", i
+            # print "P_t (pre-update) = ", self.P_t
+            K = self.P_t.dot(dh.T).dot(np.linalg.inv(dh.dot(self.P_t).dot(dh.T) + self.R_t))
+            # print "K = ", K
+
+            # Using the pose of the observed tag in the robot frame, calculate the
+            # pose of the robot in the world frame
+            tag_id = int(z_t[i][3])
+            # print "tag_id = ", tag_id
+            pose_tag_in_robot = z_t[i][0:3] # get pose of tag in robot frame
+            H_RT = util.get_transform_matrix(pose_tag_in_robot) # get transform matrix of robot to tag frame
+            pose_tag_in_world = self.markers[tag_id, 0:3] # get pose of tag in world frame
+            H_WT = util.get_transform_matrix(pose_tag_in_world) # get transform matrix of world to tag frame
+            H_TR = np.linalg.inv(H_RT) # get transform matrix of tag to robot frame
+            H_WR = np.dot(H_WT, H_TR) # get transform matrix of world to robot frame
+            pose_robot_in_world = util.get_pose_from_transform(H_WR) # get pose of robot in world frame
+            
+            # print "x_t = ", self.x_t
+            # print "pose_robot_in_world = ", pose_robot_in_world
+            self.x_t = self.x_t + K.dot(np.array(pose_robot_in_world)-self.x_t)
+
+            ########### KEY STEP ############
+            # Limit the angle to range [-pi, pi]
+            self.x_t[2] = util.limit_angle(self.x_t[2])
+
+            # print "x_t.shape = ", self.x_t.shape
+            self.P_t = (np.eye(3) - K.dot(dh)).dot(self.P_t)
+            # print "P_t (post-update) = ", self.P_t
         
-            tagId = int(z_t[i][3])
-        
-            H_T2R = np.array([[np.cos(z_t[i][2]), -np.sin(z_t[i][2]), z_t[i][0]], \
-            [np.sin(z_t[i][2]), np.cos(z_t[i][2]), z_t[i][1]], \
-            [0, 0, 1]])
-            
-            #print("z_t = ", z_t[i])
-            #print("H_T2R = ", H_T2R)
-            
-            H_T2W = np.array([[np.cos(self.markers[tagId][2]), -np.sin(self.markers[tagId][2]), self.markers[tagId][0]], \
-            [np.sin(self.markers[tagId][2]), np.cos(self.markers[tagId][2]), self.markers[tagId][1]], \
-            [0, 0, 1]])
-            
-            #print("self.markers[i]", self.markers[i])
-            #print("H_T2W = ", H_T2W)
-            
-            H_R2W = H_T2W.dot(np.linalg.inv(H_T2R))
-            #print("H_T2W = ", H_T2W)
-            
-            pose_meas = np.array([H_R2W[0,2], H_R2W[1,2], np.arctan2(H_R2W[1,0],H_R2W[0,0])])
-            #print("measured pose = ", pose_meas)
-            
-            self.x_t = self.x_t + K.dot(pose_meas-self.x_t)
-        
-        self.P_t = (np.eye(3) - K.dot(dh)).dot(self.P_t)
-        
+        # self.P_t = (np.eye(3) - K.dot(dh)).dot(self.P_t)
+        # print "P_t (post-update) = ", self.P_t
         return self.x_t, self.P_t
         
     def step_filter(self, v, imu_meas, z_t):
@@ -146,7 +178,12 @@ class KalmanFilter:
         if imu_meas is not None:
             self.x_t, self.P_t = self.prediction(v, imu_meas)
         
-        if z_t is not None and z_t != []:
+        # print "z_t = ", z_t
+        # print "type(z_t) = ", type(z_t)
+        # print "z_t == None: ", z_t == None
+        # print "z_t != None: ", z_t != None
+        # print "z_t is None: ", z_t is None
+        if len(z_t.shape) > 0:
             self.x_t, self.P_t = self.update(z_t)
             
         return self.x_t
