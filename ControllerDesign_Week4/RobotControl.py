@@ -13,8 +13,7 @@ import sys
 # TODO for student: Comment this section when running on the robot 
 from RobotSim import RobotSim
 import matplotlib.pyplot as plt
-
-import math
+import utility as util
 
 # TODO for student: uncomment when changing to the robot
 # from ros_interface import ROSInterface
@@ -66,37 +65,16 @@ class RobotControl(object):
         #self.ros_interface = ROSInterface(t_cam_to_body)
 
         # YOUR CODE AFTER THIS
-        self.pos_goal = pos_goal # (x,y,theta) specifying final position of robot
+        self.switch_to_state("go_to_goal")
         
         # Uncomment as completed
         #self.kalman_filter = KalmanFilter(world_map)
         self.diff_drive_controller = DiffDriveController(max_speed, max_omega)
-
-    def get_transform_matrix(self,X):
-        """
-        Given an X = [x,y,theta], create associated transform
-        Inputs: X - an array of size 3 with [x,y,theta] in it
-        Output: H - a 3 by 3 numpy array of homogeneous representation rotation
-                    and translation
-
-        Note: This helper method is part of the RobotSim class from RobotSim.py
-        """
-        return np.array([[np.cos(X[2]), -np.sin(X[2]), X[0]],
-                         [np.sin(X[2]),  np.cos(X[2]), X[1]],
-                         [         0.0,           0.0,  1.0]])
     
-    def get_pose_from_transform(self,H):
-        """
-        Given H created from H(X), extract the X
-        Inputs: H - a 3 by 3 numpy array of homogeneous representation rotation
-                    and translation
-        Outpus: X - an array of size 3 of [x,y,theta] of transformation
+    def switch_to_state(self, state):
+        self.current_state = state
 
-        Note: This helper method is part of the RobotSim class from RobotSim.py
-        """
-        return [H[0,2],H[1,2],math.atan2(H[1,0],H[0,0])]
-
-    def process_measurements(self):
+    def process_measurements(self, pos_goal):
         """ 
         YOUR CODE HERE
         Main loop of the robot - where all measurements, control, and esimtaiton
@@ -110,15 +88,16 @@ class RobotControl(object):
         # being the identifier from the map, and time being the current time
         # stamp. If no tags are seen, the function returns None. 
         meas = self.robot_sim.get_measurements()
-        imu_meas = self.robot_sim.get_imu()
-
-        done = False
-        goal = self.pos_goal
-        # print "goal = ", goal
+        # imu_meas = self.robot_sim.get_imu()
 
         if True:
-            state = self.robot_sim.get_gt_pose()
-            v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
+            pose_robot_in_world = self.robot_sim.get_gt_pose()
+            # print "pose_robot = ", pose_robot_in_world
+            v, omega, at_goal = self.diff_drive_controller.compute_vel(pose_robot_in_world, pos_goal)
+
+            # print "v = ", v
+            # print "omega = ", omega
+            # print "at_goal = ", at_goal
         elif meas is not None and meas != []:
             #print meas
             #print type(meas)
@@ -127,26 +106,22 @@ class RobotControl(object):
             # print "tag_id = ", tag_id
 
             pose_tag_in_robot = meas[0][0:3] # get pose of tag in robot frame
-            H_RT = self.get_transform_matrix(pose_tag_in_robot) # get transform matrix of robot to tag frame
-            print "markers = ", self.robot_sim.markers
-            print "type(markers) = ", type(self.robot_sim.markers)
-            print "markers[tag_id] = ", self.robot_sim.markers[tag_id]
+            H_RT = util.get_transform_matrix(pose_tag_in_robot) # get transform matrix of robot to tag frame
+            # print "markers = ", self.robot_sim.markers
+            # print "type(markers) = ", type(self.robot_sim.markers)
+            # print "markers[tag_id] = ", self.robot_sim.markers[tag_id]
             pose_tag_in_world = self.robot_sim.markers[tag_id, 0:3] # get pose of tag in world frame
-            print "pose_tag_in_world = ", pose_tag_in_world
-            H_WT = self.get_transform_matrix(pose_tag_in_world) # get transform matrix of world to tag frame
+            # print "pose_tag_in_world = ", pose_tag_in_world
+            H_WT = util.get_transform_matrix(pose_tag_in_world) # get transform matrix of world to tag frame
             H_TR = np.linalg.inv(H_RT) # get transform matrix of tag to robot frame
             H_WR = np.dot(H_WT, H_TR) # get transform matrix of world to robot frame
 
-            pose_robot_in_world = self.get_pose_from_transform(H_WR)
-            state = pose_robot_in_world
-            print "state = ", state
-            print "true pose = ", self.robot_sim.get_gt_pose()
+            pose_robot_in_world = util.get_pose_from_transform(H_WR)
+            # print "pose_robot_in_world = ", pose_robot_in_world
+            # print "ground truth pose = ", self.robot_sim.get_gt_pose()
 
-            v, omega, done = self.diff_drive_controller.compute_vel(state, goal)
+            v, omega, at_goal = self.diff_drive_controller.compute_vel(pose_robot_in_world, self.pos_goal)
             #print done
-        else:
-            v = 0
-            omega = 0
 
         self.robot_sim.command_velocity(v, omega)
             
@@ -154,7 +129,7 @@ class RobotControl(object):
         # meas = self.ros_interface.get_measurements()
         # imu_meas = self.ros_interface.get_imu()
 
-        return done
+        return at_goal
     
 def main(args):
     # Load parameters from yaml
@@ -172,6 +147,8 @@ def main(args):
     t_cam_to_body = np.array(params['t_cam_to_body'])
     x_spacing = params['x_spacing']
     y_spacing = params['y_spacing']
+    waypoints = np.array(params['waypoints'])
+    print "waypoints = ", waypoints
 
     # Intialize the RobotControl object
     robotControl = RobotControl(world_map, occupancy_map, pos_init, pos_goal,
@@ -180,11 +157,21 @@ def main(args):
 
     # TODO for student: Comment this when running on the robot 
     # Run the simulation
-    done = False
-    while not robotControl.robot_sim.done and plt.get_fignums() and done is False:
-        done = robotControl.process_measurements()
-        #print done
+    goal = pos_goal.reshape(len(pos_goal))
+    at_goal = False
+    route_done = False
+    waypoint_idx = 0
+    while not robotControl.robot_sim.done and plt.get_fignums() and not route_done:
+        goal = waypoints[waypoint_idx]
+        # print "goal = ", goal
+        at_goal = robotControl.process_measurements(goal)    
         robotControl.robot_sim.update_frame()
+
+        if at_goal: # at the current waypoint, move to next one
+            waypoint_idx += 1
+            at_goal = False
+            if waypoint_idx >= waypoints.shape[0]: # finished all waypoints
+                route_done = True
 
     plt.ioff()
     plt.show()

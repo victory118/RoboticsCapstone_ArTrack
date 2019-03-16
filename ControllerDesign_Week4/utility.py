@@ -5,6 +5,7 @@ Used mostly for extending coordinate transformations beyond the scope of transfo
 Written by Alex Zhu (alexzhu(at)seas.upenn.edu)
 """
 import numpy as np
+import math
 
 import roslib
 from std_msgs.msg import (
@@ -46,3 +47,27 @@ def make_pose_stamped_msg(t,R):
     pose_msg.orientation.w=quat[3]
     pose_stamped_msg.pose=pose_msg
     return pose_stamped_msg
+
+def get_transform_matrix(X):
+    """
+    Given an X = [x,y,theta], create associated transform
+    Inputs: X - an array of size 3 with [x,y,theta] in it
+    Output: H - a 3 by 3 numpy array of homogeneous representation rotation
+                and translation
+
+    Note: This helper method is part of the RobotSim class from RobotSim.py
+    """
+    return np.array([[np.cos(X[2]), -np.sin(X[2]), X[0]],
+                    [np.sin(X[2]),  np.cos(X[2]), X[1]],
+                    [         0.0,           0.0,  1.0]])
+    
+def get_pose_from_transform(H):
+    """
+    Given H created from H(X), extract the X
+    Inputs: H - a 3 by 3 numpy array of homogeneous representation rotation
+                and translation
+    Outpus: X - an array of size 3 of [x,y,theta] of transformation
+
+    Note: This helper method is part of the RobotSim class from RobotSim.py
+    """
+    return [H[0,2],H[1,2],math.atan2(H[1,0],H[0,0])]

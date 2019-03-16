@@ -14,8 +14,8 @@ class DiffDriveController():
         # ka + 5/3*kb - 2/pi*kp > 0
         # kb > (2/pi*kp - ka)*5/3
         self.kp = 3
-        self.ka = 8 # 10
-        self.kb = -2 # 0
+        self.ka = 8 #
+        self.kb = 0 # -2 works
         self.MAX_SPEED = max_speed
         self.MAX_OMEGA = max_omega
         
@@ -38,6 +38,8 @@ class DiffDriveController():
 
         # state is the pose of robot in world frame
         # goal is the desired final pose in world frame
+        state = state.flatten()
+        goal = goal.flatten()
 
         dx = goal[0] - state[0] # robot to goal along world frame x-axis
         dy = goal[1] - state[1] # robot to goal along world frame y-axis
@@ -58,7 +60,8 @@ class DiffDriveController():
         alpha = (np.arctan2(dy,dx) - theta + np.pi) % (2*np.pi) - np.pi
         beta = (theta_goal - theta - alpha + np.pi) % (2*np.pi) - np.pi
 
-        v = self.kp*rho
+        # v = self.kp*rho
+        v = 0.3
         omega = self.ka*alpha + self.kb*beta
 
         # This allows the velocity to be negative if the goal is behind the robot.
@@ -69,20 +72,20 @@ class DiffDriveController():
         if alpha > np.pi / 2 or alpha < -np.pi / 2:
             v = -v
 
-        done = False
+        at_goal = False
 
         if abs(rho) < 0.05:
 
             v = 0.0
             omega = 0.0
-            done = True
+            at_goal = True
 
-            print 'in here'
-            print "v = ", v
-            print "omega = ", omega
-            print "done = ", done
+            # print 'in here'
+            # print "v = ", v
+            # print "omega = ", omega
+            print "at_goal = ", at_goal
 
-            return v, omega, done
+            return v, omega, at_goal
           
 	    if abs(v) > self.MAX_SPEED:
 	        v = self.MAX_SPEED*v/abs(v)
@@ -95,5 +98,4 @@ class DiffDriveController():
         # print "omega = ", omega
         # print "done = ", done
         
-        return v, omega, done
-
+        return v, omega, at_goal
